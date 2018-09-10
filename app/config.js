@@ -1,7 +1,7 @@
 var credentials = require("./credentials.js");
 var coins = require("./coins.js");
 
-var currentCoin = "BTC";
+var currentCoin = "LTC";
 
 module.exports = {
 	cookiePassword: "0x000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f",
@@ -60,18 +60,16 @@ module.exports = {
 	],
 
 	donationAddresses:{
-		coins:["BTC", "LTC"],
+		coins:["ACM"],
 
-		"BTC":{address:"3NPGpNyLLmVKCEcuipBs7G4KpQJoJXjDGe", urlPrefix:"bitcoin:"},
-		"LTC":{address:"ME4pXiXuWfEi1ANBDo9irUJVcZBhsTx14i", urlPrefix:"litecoin:"}
+		"ACM":{address:"NRrScuna5ecFbka7AetpP8FbXhzWRRAfUA", urlPrefix:"Actinium:"},
 	},
 
 	headerDropdownLinks: {
 		title:"Related Sites",
 		links:[
-			{name: "Bitcoin Explorer", url:"https://btc.chaintools.io", imgUrl:"/img/logo/btc.svg"},
-			{name: "Litecoin Explorer", url:"https://ltc.chaintools.io", imgUrl:"/img/logo/ltc.svg"},
-			{name: "Lightning Explorer", url:"https://lightning.chaintools.io", imgUrl:"/img/logo/lightning.svg"},
+			{name: "Actinium Explorer", url:"https://explorer2.actinium.org", imgUrl:"/img/logo/acm.svg"},
+			{name: "Lightning Explorer", url:"https://ln-explorer.actinium.org", imgUrl:"/img/logo/lightning.svg"},
 		]
 	}
 };
