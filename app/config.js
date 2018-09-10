@@ -60,9 +60,7 @@ module.exports = {
 	],
 
 	donationAddresses:{
-		coins:["ACM"],
-
-		"ACM":{address:"NRrScuna5ecFbka7AetpP8FbXhzWRRAfUA", urlPrefix:"Actinium:"},
+		coins:[],
 	},
 
 	headerDropdownLinks: {
