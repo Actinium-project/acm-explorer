@@ -6,14 +6,14 @@ module.exports = {
 	rpc: {
 		host:"localhost",
 		port:2300,
-		username:"harris12345",
-		password:"hardpassword12345"
+		username:"_username_",
+		password:"_password_"
 	},
 
 	// optional: enter your api access key from ipstack.com below
 	// to include a map of the estimated locations of your node's
 	// peers
-	ipStackComApiAccessKey:"998b2c319572fbf0d2dad91845408965",
+	ipStackComApiAccessKey:"_access_key_",
 
 	// optional: GA tracking code
 	googleAnalyticsTrackingId:"",
