@@ -1,4 +1,4 @@
-# BTC RPC Explorer
+# Actinium Explorer
 
 Simple, database-free Bitcoin blockchain explorer, via RPC. Built with Node.js, express, bootstrap-v4.
 
