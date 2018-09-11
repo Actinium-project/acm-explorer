@@ -2,10 +2,6 @@
 
 Simple, database-free Bitcoin blockchain explorer, via RPC. Built with Node.js, express, bootstrap-v4.
 
-This tool is intended to be a simple, self-hosted explorer for the Bitcoin blockchain, driven by RPC calls to your own bitcoind node. This tool is easy to run but currently lacks features compared to database-backed explorers.
-
-I built this tool because I wanted to use it myself. Whatever reasons one might have for running a full node (trustlessness, technical curiosity, supporting the network, etc) it's helpful to appreciate the "fullness" of your node. With this explorer, you can not only explore the blockchain (in the traditional sense of the term "explorer"), but also explore the functional capabilities of your own node.
-
 Available at:
 
 * ACM: https://explorer.actinium.org
@@ -93,7 +89,7 @@ The below instructions are geared toward BTC, but can be adapted easily to other
   </tr>
 </table>
 
-# Donate
+# Donate to the author of the original software!
 
 To support continued development of this tool and/or to support the hosting of the live demo site:
 
