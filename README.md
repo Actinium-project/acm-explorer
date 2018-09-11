@@ -6,10 +6,9 @@ This tool is intended to be a simple, self-hosted explorer for the Bitcoin block
 
 I built this tool because I wanted to use it myself. Whatever reasons one might have for running a full node (trustlessness, technical curiosity, supporting the network, etc) it's helpful to appreciate the "fullness" of your node. With this explorer, you can not only explore the blockchain (in the traditional sense of the term "explorer"), but also explore the functional capabilities of your own node.
 
-Live demos are available at:
+Available at:
 
-* BTC: https://btc.chaintools.io
-* LTC: https://ltc.chaintools.io
+* ACM: https://explorer.actinium.org
 
 # Features
 
