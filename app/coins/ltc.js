@@ -1,6 +1,46 @@
 var Decimal = require("decimal.js");
 Decimal8 = Decimal.clone({ precision:8, rounding:8 });
 
+var currencyUnits = [
+	{
+		type:"native",
+		name:"LTC",
+		multiplier:1,
+		default:true,
+		values:["", "ltc", "LTC"],
+		decimalPlaces:8
+	},
+	{
+		type:"native",
+		name:"lite",
+		multiplier:1000,
+		values:["lite"],
+		decimalPlaces:5
+	},
+	{
+		type:"native",
+		name:"photon",
+		multiplier:1000000,
+		values:["photon"],
+		decimalPlaces:2
+	},
+	{
+		type:"native",
+		name:"litoshi",
+		multiplier:100000000,
+		values:["litoshi", "lit"],
+		decimalPlaces:0
+	},
+	{
+		type:"exchanged",
+		name:"USD",
+		multiplier:"usd",
+		values:["usd"],
+		decimalPlaces:2,
+		symbol:"$"
+	},
+];
+
 module.exports = {
 	name:"Actinium",
 	logoUrl:"/img/logo/acm.svg",
@@ -39,6 +79,11 @@ module.exports = {
 			decimalPlaces:0
 		}
 	],
+	targetBlockTimeSeconds: 150,
+	currencyUnits:currencyUnits,
+	currencyUnitsByName:{"ACM":currencyUnits[0], "atom":currencyUnits[1], "photon":currencyUnits[2], "actinoshi":currencyUnits[3]},
+	baseCurrencyUnit:currencyUnits[3],
+	defaultCurrencyUnit:currencyUnits[0],
 	feeSatoshiPerByteBucketMaxima: [5, 10, 25, 50, 100, 150, 200, 250],
 	genesisBlockHash: "28d77872e23714562f49a1be792c276623c1bbe3fdcf21b6035cfde78b00b824",
 	genesisCoinbaseTransactionId: "ec55b10e2f22adf88cb40df86df4d912687c13e6a4d6289513883adaef2c9191",
@@ -101,10 +146,9 @@ module.exports = {
 		exchangedCurrencyName:"usd",
 		responseBodySelectorFunction:function(responseBody) {
 			if (responseBody[0] && responseBody[0].price_usd) {
-				return responseBody[0].price_usd;
+				return {"usd":responseBody[0].price_usd};
 			}
-			
-			return -1;
+			return null;
 		}
 	},
 	blockRewardFunction:function(blockHeight) {

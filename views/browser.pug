@@ -20,8 +20,8 @@ block content
 					div(class="row")
 						div(class="col")
 							h4(style="display: inline-block;")
-								span(class="text-muted") Command: 
-								span  #{method}
+								span Command: 
+								span(class="font-weight-light") #{method}
 						div(class="col")
 							a(href=("https://bitcoin.org/en/developer-reference#" + method), class="btn btn-primary float-md-right") See developer docs &raquo;
 								
@@ -34,6 +34,10 @@ block content
 						li(class="nav-item")
 							a(data-toggle="tab", href="#tab-help-content", class="nav-link", role="tab") Help Content
 
+						if (methodhelp.args && methodhelp.args.length > 0)
+							li(class="nav-item")
+								a(data-toggle="tab", href="#tab-parsed-args", class="nav-link", role="tab") Arguments Details
+
 					div(class="tab-content")
 						div(id="tab-execute", class="tab-pane active pb-3", role="tabpanel")
 							if (methodResult)
@@ -41,14 +45,19 @@ block content
 									h5(class="mt-3") Result
 
 									pre(style="border: solid 1px #ccc;")
-										code #{JSON.stringify(methodResult, null, 4)}
+										code(class="json bg-light", data-lang="json") #{JSON.stringify(methodResult, null, 4)}
 
 								hr
 
 							form(method="get")
+								input(type="hidden", name="_csrf", value=csrfToken)
 								input(type="hidden", name="method", value=method)
 
 								div(class="h5 mb-3") Arguments
+
+								if (false)
+									pre
+										code.json #{JSON.stringify(argValues, null, 4)}
 								
 								div(class="ml-3")
 									each argX, index in methodhelp.args
@@ -70,9 +79,13 @@ block content
 											if (argValues != null)
 												if (argValues[index] != null)
 													if (("" + argValues[index]) != NaN)
-														- valX = argValues[index].toString();
+														- valX = JSON.stringify(argValues[index]);
+														if (valX.substring(0, 1) == "\"")
+															- valX = valX.substring(1);
+														if (valX.substring(valX.length - 1, valX.length) == "\"")
+															- valX = valX.substring(valX.length - 1);
 
-											input(id=("arg_" + argX.name), type="text", name=("args[" + index + "]"), placeholder=argX.name, class="form-control", value=valX)
+											input(id=("arg_" + argX.name), type="text", name=("args[" + index + "]"), placeholder=argX.name, class="form-control", value=(valX ? valX : ""))
 
 									if (!methodhelp.args || methodhelp.args.length == 0)
 										span(class="text-muted") None
@@ -82,7 +95,13 @@ block content
 								input(type="submit", name="execute", value="Execute", class="btn btn-primary btn-block")
 
 						div(id="tab-help-content", class="tab-pane", role="tabpanel")
-							pre #{methodhelp.string}
+							pre
+								code(data-lang="txt", class="json bg-light") #{methodhelp.string}
+
+						if (methodhelp.args && methodhelp.args.length > 0)
+							div(id="tab-parsed-args", class="tab-pane", role="tabpanel")
+								pre
+									code(data-lang="json", class="json bg-light") #{JSON.stringify(methodhelp.args, null, 4)}
 
 					
 							

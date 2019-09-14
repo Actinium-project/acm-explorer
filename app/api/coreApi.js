@@ -1,17 +1,74 @@
+var debug = require("debug");
+
+var debugLog = debug("btcexp:core");
+
 var LRU = require("lru-cache");
 var fs = require('fs');
 
 var utils = require("../utils.js");
 var config = require("../config.js");
 var coins = require("../coins.js");
+var redisCache = require("../redisCache.js");
 
 // choose one of the below: RPC to a node, or mock data while testing
 var rpcApi = require("./rpcApi.js");
 //var rpcApi = require("./mockApi.js");
 
-var miscCache = LRU(50);
-var blockCache = LRU(50);
-var txCache = LRU(200);
+
+function onCacheEvent(cacheType, hitOrMiss, cacheKey) {
+	//debugLog(`cache.${cacheType}.${hitOrMiss}: ${cacheKey}`);
+}
+
+function createMemoryLruCache(cacheObj) {
+	return {
+		get:function(key) {
+			return new Promise(function(resolve, reject) {
+				var val = cacheObj.get(key);
+
+				if (val != null) {
+					onCacheEvent("memory", "hit", key);
+
+				} else {
+					onCacheEvent("memory", "miss", key);
+				}
+
+				resolve(cacheObj.get(key));
+			});
+		},
+		set:function(key, obj, maxAge) { cacheObj.set(key, obj, maxAge); }
+	}
+}
+
+var noopCache = {
+	get:function(key) {
+		return new Promise(function(resolve, reject) {
+			resolve(null);
+		});
+	},
+	set:function(key, obj, maxAge) {}
+};
+
+var miscCache = null;
+var blockCache = null;
+var txCache = null;
+
+if (config.noInmemoryRpcCache) {
+	miscCache = noopCache;
+	blockCache = noopCache;
+	txCache = noopCache;
+
+} else {
+	miscCache = createMemoryLruCache(new LRU(50));
+	blockCache = createMemoryLruCache(new LRU(50));
+	txCache = createMemoryLruCache(new LRU(200));
+}
+
+if (redisCache.active) {
+	miscCache = redisCache;
+	blockCache = redisCache;
+	txCache = redisCache;
+}
+
 
 
 
@@ -26,7 +83,7 @@ function getGenesisCoinbaseTransactionId() {
 
 
 function tryCacheThenRpcApi(cache, cacheKey, cacheMaxAge, rpcApiFunction, cacheConditionFunction) {
-	//console.log("tryCache: " + cacheKey + ", " + cacheMaxAge);
+	//debugLog("tryCache: " + cacheKey + ", " + cacheMaxAge);
 	if (cacheConditionFunction == null) {
 		cacheConditionFunction = function(obj) {
 			return true;
@@ -34,24 +91,53 @@ function tryCacheThenRpcApi(cache, cacheKey, cacheMaxAge, rpcApiFunction, cacheC
 	}
 
 	return new Promise(function(resolve, reject) {
-		var result = cache.get(cacheKey);
-		if (result) {
-			resolve(result);
+		var cacheResult = null;
 
-		} else {
-			rpcApiFunction().then(function(result) {
-				if (result != null && cacheConditionFunction(result)) {
-					cache.set(cacheKey, result, cacheMaxAge);
-				}
+		var finallyFunc = function() {
+			if (cacheResult != null) {
+				resolve(cacheResult);
 
-				resolve(result);
-			});
-		}
+			} else {
+				rpcApiFunction().then(function(rpcResult) {
+					if (rpcResult != null && cacheConditionFunction(rpcResult)) {
+						cache.set(cacheKey, rpcResult, cacheMaxAge);
+					}
+
+					resolve(rpcResult);
+
+				}).catch(function(err) {
+					reject(err);
+				});
+			}
+		};
+
+		cache.get(cacheKey).then(function(result) {
+			cacheResult = result;
+
+			finallyFunc();
+			
+		}).catch(function(err) {
+			utils.logError("nds9fc2eg621tf3", err, {cacheKey:cacheKey});
+
+			finallyFunc();
+		});
 	});
 }
 
 function shouldCacheTransaction(tx) {
-	return (tx.confirmations > 0);
+	if (!tx.confirmations) {
+		return false;
+	}
+	
+	if (tx.confirmations < 1) {
+		return false;
+	}
+
+	if (tx.vin != null && tx.vin.length > 9) {
+		return false;
+	}
+
+	return true;
 }
 
 
@@ -73,7 +159,7 @@ function getMempoolInfo() {
 }
 
 function getMiningInfo() {
-	return tryCacheThenRpcApi(miscCache, "getMiningInfo", 1000, rpcApi.getMiningInfo);
+	return tryCacheThenRpcApi(miscCache, "getMiningInfo", 30000, rpcApi.getMiningInfo);
 }
 
 function getUptimeSeconds() {
@@ -81,8 +167,76 @@ function getUptimeSeconds() {
 }
 
 function getChainTxStats(blockCount) {
-	return tryCacheThenRpcApi(miscCache, "getChainTxStats-" + blockCount, 120000, function() {
+	return tryCacheThenRpcApi(miscCache, "getChainTxStats-" + blockCount, 1200000, function() {
 		return rpcApi.getChainTxStats(blockCount);
+	});
+}
+
+function getTxCountStats(dataPtCount, blockStart, blockEnd) {
+	return new Promise(function(resolve, reject) {
+		var dataPoints = dataPtCount;
+
+		getBlockchainInfo().then(function(getblockchaininfo) {
+			if (typeof blockStart === "string") {
+				if (["genesis", "first", "zero"].includes(blockStart)) {
+					blockStart = 0;
+				}
+			}
+
+			if (typeof blockEnd === "string") {
+				if (["latest", "tip", "newest"].includes(blockEnd)) {
+					blockEnd = getblockchaininfo.blocks;
+				}
+			}
+
+			if (blockStart > blockEnd) {
+				reject(`Error 37rhw0e7ufdsgf: blockStart (${blockStart}) > blockEnd (${blockEnd})`);
+
+				return;
+			}
+
+			if (blockStart < 0) {
+				blockStart += getblockchaininfo.blocks;
+			}
+
+			if (blockEnd < 0) {
+				blockEnd += getblockchaininfo.blocks;
+			}
+
+			var chainTxStatsIntervals = [];
+			for (var i = 0; i < dataPoints; i++) {
+				chainTxStatsIntervals.push(parseInt(Math.max(10, getblockchaininfo.blocks - blockStart - i * (blockEnd - blockStart) / (dataPoints - 1) - 1)));
+			}
+
+			var promises = [];
+			for (var i = 0; i < chainTxStatsIntervals.length; i++) {
+				promises.push(getChainTxStats(chainTxStatsIntervals[i]));
+			}
+
+			Promise.all(promises).then(function(results) {
+				var txStats = {
+					txCounts: [],
+					txLabels: [],
+					txRates: []
+				};
+
+				for (var i = results.length - 1; i >= 0; i--) {
+					if (results[i].window_tx_count) {
+						txStats.txCounts.push( {x:(getblockchaininfo.blocks - results[i].window_block_count), y: (results[i].txcount - results[i].window_tx_count)} );
+						txStats.txRates.push( {x:(getblockchaininfo.blocks - results[i].window_block_count), y: (results[i].txrate)} );
+						txStats.txLabels.push(i);
+					}
+				}
+				
+				resolve({txCountStats:txStats, getblockchaininfo:getblockchaininfo, totalTxCount:results[0].txcount});
+
+			}).catch(function(err) {
+				reject(err);
+			});
+
+		}).catch(function(err) {
+			reject(err);
+		});
 	});
 }
 
@@ -160,6 +314,9 @@ function getPeerSummary() {
 			result.servicesSummary = servicesSummary;
 
 			resolve(result);
+
+		}).catch(function(err) {
+			reject(err);
 		});
 	});
 }
@@ -178,7 +335,7 @@ function getMempoolDetails(start, count) {
 			}
 
 			getRawTransactions(txids).then(function(transactions) {
-				var maxInputsTracked = config.site.blockTxMaxInput;
+				var maxInputsTracked = config.site.txMaxInput;
 				var vinTxids = [];
 				for (var i = 0; i < transactions.length; i++) {
 					var transaction = transactions[i];
@@ -213,8 +370,16 @@ function getMempoolDetails(start, count) {
 					});
 
 					resolve({ txCount:txidIndex, transactions:transactions, txInputsByTransaction:txInputsByTransaction });
+				}).catch(function(err) {
+					reject(err);
 				});
+
+			}).catch(function(err) {
+				reject(err);
 			});
+
+		}).catch(function(err) {
+			reject(err);
 		});
 	});
 }
@@ -378,12 +543,15 @@ function getMempoolStats() {
 				summary["satoshiPerByteBucketTotalFees"].push(summary["satoshiPerByteBuckets"][i]["totalFees"]);
 			}
 
-			/*console.log(JSON.stringify(ageBuckets));
-			console.log(JSON.stringify(ageBucketLabels));
-			console.log(JSON.stringify(sizeBuckets));
-			console.log(JSON.stringify(sizeBucketLabels));*/
+			/*debugLog(JSON.stringify(ageBuckets));
+			debugLog(JSON.stringify(ageBucketLabels));
+			debugLog(JSON.stringify(sizeBuckets));
+			debugLog(JSON.stringify(sizeBucketLabels));*/
 
 			resolve(summary);
+
+		}).catch(function(err) {
+			reject(err);
 		});
 	});
 }
@@ -395,51 +563,18 @@ function getBlockByHeight(blockHeight) {
 }
 
 function getBlocksByHeight(blockHeights) {
-	var blockHeightsNotInCache = [];
-	var blocksByIndex = {};
-
-	for (var i = 0; i < blockHeights.length; i++) {
-		var blockI = blockCache.get("getBlockByHeight-" + blockHeights[i]);
-		if (blockI == null) {
-			blockHeightsNotInCache.push(blockHeights[i]);
-
-		} else {
-			blocksByIndex[i] = blockI;
-		}
-	}
-
 	return new Promise(function(resolve, reject) {
-		var combinedBlocks = [];
-		if (blockHeightsNotInCache.length > 0) {
-			rpcApi.getBlocksByHeight(blockHeightsNotInCache).then(function(queriedBlocks) {
-				var queriedBlocksCurrentIndex = 0;
-				for (var i = 0; i < blockHeights.length; i++) {
-					if (blocksByIndex.hasOwnProperty(i)) {
-						combinedBlocks.push(blocksByIndex[i]);
-
-					} else {
-						var queriedBlock = queriedBlocks[queriedBlocksCurrentIndex];
-						
-						combinedBlocks.push(queriedBlock);
-
-						blockCache.set("getBlockByHeight-" + queriedBlock.height, queriedBlock, 3600000);
-
-						queriedBlocksCurrentIndex++;
-					}
-				}
-
-				resolve(combinedBlocks);
-
-			}).catch(function(err) {
-				console.log("Error 39g2rfyewgf: " + err);
-			});
-		} else {
-			for (var i = 0; i < blockHeights.length; i++) {
-				combinedBlocks.push(blocksByIndex[i]);
-			}
-
-			resolve(combinedBlocks);
+		var promises = [];
+		for (var i = 0; i < blockHeights.length; i++) {
+			promises.push(getBlockByHeight(blockHeights[i]));
 		}
+
+		Promise.all(promises).then(function(results) {
+			resolve(results);
+
+		}).catch(function(err) {
+			reject(err);
+		});
 	});
 }
 
@@ -450,48 +585,24 @@ function getBlockByHash(blockHash) {
 }
 
 function getBlocksByHash(blockHashes) {
-	var blockHashesNotInCache = [];
-	var blocksByIndex = {};
-
-	for (var i = 0; i < blockHashes.length; i++) {
-		var blockI = blockCache.get("getBlockByHash-" + blockHashes[i]);
-		if (blockI == null) {
-			blockHashesNotInCache.push(blockHashes[i]);
-
-		} else {
-			blocksByIndex[i] = blockI;
-		}
-	}
-
 	return new Promise(function(resolve, reject) {
-		var combinedBlocks = [];
-		if (blockHashesNotInCache.length > 0) {
-			rpcApi.getBlocksByHash(blockHashesNotInCache).then(function(queriedBlocks) {
-				var queriedBlocksCurrentIndex = 0;
-				for (var i = 0; i < blockHashes.length; i++) {
-					if (blocksByIndex.hasOwnProperty(i)) {
-						combinedBlocks.push(blocksByIndex[i]);
-
-					} else {
-						var queriedBlock = queriedBlocks[queriedBlocksCurrentIndex];
-
-						combinedBlocks.push(queriedBlock);
-
-						blockCache.set("getBlockByHash-" + queriedBlock.hash, queriedBlock, 3600000);
-
-						queriedBlocksCurrentIndex++;
-					}
-				}
-
-				resolve(combinedBlocks);
-			});
-		} else {
-			for (var i = 0; i < blockHeights.length; i++) {
-				combinedBlocks.push(blocksByIndex[i]);
-			}
-
-			resolve(combinedBlocks);
+		var promises = [];
+		for (var i = 0; i < blockHashes.length; i++) {
+			promises.push(getBlockByHash(blockHashes[i]));
 		}
+
+		Promise.all(promises).then(function(results) {
+			var result = {};
+
+			results.forEach(function(item) {
+				result[item.hash] = item;
+			});
+
+			resolve(result);
+
+		}).catch(function(err) {
+			reject(err);
+		});
 	});
 }
 
@@ -503,6 +614,50 @@ function getRawTransaction(txid) {
 	return tryCacheThenRpcApi(txCache, "getRawTransaction-" + txid, 3600000, rpcApiFunction, shouldCacheTransaction);
 }
 
+function getTxUtxos(tx) {
+	return new Promise(function(resolve, reject) {
+		var promises = [];
+
+		for (var i = 0; i < tx.vout.length; i++) {
+			promises.push(getUtxo(tx.txid, i));
+		}
+
+		Promise.all(promises).then(function(results) {
+			resolve(results);
+
+		}).catch(function(err) {
+			reject(err);
+		});
+	});
+}
+
+function getUtxo(txid, outputIndex) {
+	return new Promise(function(resolve, reject) {
+		tryCacheThenRpcApi(miscCache, "utxo-" + txid + "-" + outputIndex, 3600000, function() {
+			return rpcApi.getUtxo(txid, outputIndex);
+
+		}).then(function(result) {
+			// to avoid cache misses, rpcApi.getUtxo returns "0" instead of null
+			if (result == "0") {
+				resolve(null);
+
+				return;
+			}
+
+			resolve(result);
+
+		}).catch(function(err) {
+			reject(err);
+		});
+	});
+}
+
+function getMempoolTxDetails(txid) {
+	return tryCacheThenRpcApi(miscCache, "mempoolTxDetails-" + txid, 3600000, function() {
+		return rpcApi.getMempoolTxDetails(txid);
+	});
+}
+
 function getAddress(address) {
 	return tryCacheThenRpcApi(miscCache, "getAddress-" + address, 3600000, function() {
 		return rpcApi.getAddress(address);
@@ -510,51 +665,69 @@ function getAddress(address) {
 }
 
 function getRawTransactions(txids) {
-	var txidsNotInCache = [];
-	var txsByIndex = {};
-
-	for (var i = 0; i < txids.length; i++) {
-		var txI = txCache.get("getRawTransaction-" + txids[i]);
-		if (txI == null) {
-			txidsNotInCache.push(txids[i]);
-
-		} else {
-			txsByIndex[i] = txI;
-		}
-	}
-
 	return new Promise(function(resolve, reject) {
-		var combinedTxs = [];
-		if (txidsNotInCache.length > 0) {
-			rpcApi.getRawTransactions(txidsNotInCache).then(function(queriedTxs) {
-				var queriedTxsCurrentIndex = 0;
-				for (var i = 0; i < txids.length; i++) {
-					if (txsByIndex.hasOwnProperty(i)) {
-						combinedTxs.push(txsByIndex[i]);
+		var promises = [];
+		for (var i = 0; i < txids.length; i++) {
+			promises.push(getRawTransaction(txids[i]));
+		}
 
-					} else {
-						var queriedTx = queriedTxs[queriedTxsCurrentIndex];
-						if (queriedTx != null) {
-							combinedTxs.push(queriedTx);
+		Promise.all(promises).then(function(results) {
+			resolve(results);
 
-							if (shouldCacheTransaction(queriedTx)) {
-								txCache.set("getRawTransaction-" + queriedTx.txid, queriedTx, 3600000);
-							}
-						}
+		}).catch(function(err) {
+			reject(err);
+		});
+	});
+}
 
-						queriedTxsCurrentIndex++;
-					}
-				}
+function getRawTransactionsWithInputs(txids, maxInputs=-1) {
+	return new Promise(function(resolve, reject) {
+		getRawTransactions(txids).then(function(transactions) {
+			var maxInputsTracked = config.site.txMaxInput;
+			
+			if (maxInputs <= 0) {
+				maxInputsTracked = 1000000;
 
-				resolve(combinedTxs);
-			});
-		} else {
-			for (var i = 0; i < txids.length; i++) {
-				combinedTxs.push(txsByIndex[i]);
+			} else if (maxInputs > 0) {
+				maxInputsTracked = maxInputs;
 			}
 
-			resolve(combinedTxs);
-		}
+			var vinTxids = [];
+			for (var i = 0; i < transactions.length; i++) {
+				var transaction = transactions[i];
+
+				if (transaction && transaction.vin) {
+					for (var j = 0; j < Math.min(maxInputsTracked, transaction.vin.length); j++) {
+						if (transaction.vin[j].txid) {
+							vinTxids.push(transaction.vin[j].txid);
+						}
+					}
+				}
+			}
+
+			var txInputsByTransaction = {};
+			getRawTransactions(vinTxids).then(function(vinTransactions) {
+				var vinTxById = {};
+
+				vinTransactions.forEach(function(tx) {
+					vinTxById[tx.txid] = tx;
+				});
+
+				transactions.forEach(function(tx) {
+					txInputsByTransaction[tx.txid] = {};
+
+					if (tx && tx.vin) {
+						for (var i = 0; i < Math.min(maxInputsTracked, tx.vin.length); i++) {
+							if (vinTxById[tx.vin[i].txid]) {
+								txInputsByTransaction[tx.txid][i] = vinTxById[tx.vin[i].txid];
+							}
+						}
+					}
+				});
+
+				resolve({ transactions:transactions, txInputsByTransaction:txInputsByTransaction });
+			});
+		});
 	});
 }
 
@@ -567,7 +740,7 @@ function getBlockByHashWithTransactions(blockHash, txLimit, txOffset) {
 				txids.push(block.tx[0]);
 			}
 
-			for (var i = txOffset; i < (txOffset + txLimit); i++) {
+			for (var i = txOffset; i < Math.min(txOffset + txLimit, block.tx.length); i++) {
 				txids.push(block.tx[i]);
 			}
 
@@ -583,7 +756,7 @@ function getBlockByHashWithTransactions(blockHash, txLimit, txOffset) {
 					transactions.shift();
 				}
 
-				var maxInputsTracked = config.site.blockTxMaxInput;
+				var maxInputsTracked = config.site.txMaxInput;
 				var vinTxids = [];
 				for (var i = 0; i < transactions.length; i++) {
 					var transaction = transactions[i];
@@ -625,14 +798,116 @@ function getBlockByHashWithTransactions(blockHash, txLimit, txOffset) {
 }
 
 function getHelp() {
-	return tryCacheThenRpcApi(miscCache, "getHelp", 3600000, function() {
-		return rpcApi.getHelp();
+	return new Promise(function(resolve, reject) {
+		tryCacheThenRpcApi(miscCache, "getHelp", 3600000, rpcApi.getHelp).then(function(helpContent) {
+			var lines = helpContent.split("\n");
+			var sections = [];
+
+			lines.forEach(function(line) {
+				if (line.startsWith("==")) {
+					var sectionName = line.substring(2);
+					sectionName = sectionName.substring(0, sectionName.length - 2).trim();
+
+					sections.push({name:sectionName, methods:[]});
+
+				} else if (line.trim().length > 0) {
+					var methodName = line.trim();
+
+					if (methodName.includes(" ")) {
+						methodName = methodName.substring(0, methodName.indexOf(" "));
+					}
+
+					sections[sections.length - 1].methods.push({name:methodName, content:line.trim()});
+				}
+			});
+
+			resolve(sections);
+
+		}).catch(function(err) {
+			reject(err);
+		});
 	});
 }
 
 function getRpcMethodHelp(methodName) {
-	return tryCacheThenRpcApi(miscCache, "getHelp-" + methodName, 3600000, function() {
+	var rpcApiFunction = function() {
 		return rpcApi.getRpcMethodHelp(methodName);
+	};
+
+	return new Promise(function(resolve, reject) {
+		tryCacheThenRpcApi(miscCache, "getHelp-" + methodName, 3600000, rpcApiFunction).then(function(helpContent) {
+			var output = {};
+			output.string = helpContent;
+
+			var str = helpContent;
+
+			var lines = str.split("\n");
+			var argumentLines = [];
+			var catchArgs = false;
+			lines.forEach(function(line) {
+				if (line.trim().length == 0) {
+					catchArgs = false;
+				}
+
+				if (catchArgs) {
+					argumentLines.push(line);
+				}
+
+				if (line.trim() == "Arguments:" || line.trim() == "Arguments") {
+					catchArgs = true;
+				}
+			});
+
+			var args = [];
+			var argX = null;
+			// looking for line starting with "N. " where N is an integer (1-2 digits)
+			argumentLines.forEach(function(line) {
+				var regex = /^([0-9]+)\.\s*"?(\w+)"?\s*\(([^,)]*),?\s*([^,)]*),?\s*([^,)]*),?\s*([^,)]*)?\s*\)\s*(.+)?$/;
+
+				var match = regex.exec(line);
+
+				if (match) {
+					argX = {};
+					argX.name = match[2];
+					argX.detailsLines = [];
+
+					argX.properties = [];
+
+					if (match[3]) {
+						argX.properties.push(match[3]);
+					}
+
+					if (match[4]) {
+						argX.properties.push(match[4]);
+					}
+
+					if (match[5]) {
+						argX.properties.push(match[5]);
+					}
+
+					if (match[6]) {
+						argX.properties.push(match[6]);
+					}
+
+					if (match[7]) {
+						argX.description = match[7];
+					}
+
+					args.push(argX);
+				}
+
+				if (!match && argX) {
+					argX.detailsLines.push(line);
+				}
+			});
+
+			output.args = args;
+
+			resolve(output);
+
+		}).catch(function(err) {
+			reject(err);
+		});
 	});
 }
 
@@ -655,9 +930,13 @@ module.exports = {
 	getBlockByHeight: getBlockByHeight,
 	getBlocksByHeight: getBlocksByHeight,
 	getBlockByHash: getBlockByHash,
+	getBlocksByHash: getBlocksByHash,
 	getBlockByHashWithTransactions: getBlockByHashWithTransactions,
 	getRawTransaction: getRawTransaction,
 	getRawTransactions: getRawTransactions,
+	getRawTransactionsWithInputs: getRawTransactionsWithInputs,
+	getTxUtxos: getTxUtxos,
+	getMempoolTxDetails: getMempoolTxDetails,
 	getMempoolStats: getMempoolStats,
 	getUptimeSeconds: getUptimeSeconds,
 	getHelp: getHelp,
@@ -666,5 +945,6 @@ module.exports = {
 	logCacheSizes: logCacheSizes,
 	getPeerSummary: getPeerSummary,
 	getChainTxStats: getChainTxStats,
-	getMempoolDetails: getMempoolDetails
+	getMempoolDetails: getMempoolDetails,
+	getTxCountStats: getTxCountStats
 };

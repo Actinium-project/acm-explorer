@@ -2,13 +2,32 @@
 
 'use strict';
 
-var express = require('express');
+var os = require('os');
 var path = require('path');
+var dotenv = require("dotenv");
+var fs = require('fs');
+
+var configPaths = [ path.join(os.homedir(), '.config', 'btc-rpc-explorer.env'), path.join(process.cwd(), '.env') ];
+configPaths.filter(fs.existsSync).forEach(path => {
+	console.log('Loading env file:', path);
+	dotenv.config({ path });
+});
+
+// debug module is already loaded by the time we do dotenv.config
+// so refresh the status of DEBUG env var
+var debug = require("debug");
+debug.enable(process.env.DEBUG || "btcexp:app,btcexp:error");
+
+var debugLog = debug("btcexp:app");
+var debugPerfLog = debug("btcexp:actionPerformace");
+
+var express = require('express');
 var favicon = require('serve-favicon');
 var logger = require('morgan');
 var cookieParser = require('cookie-parser');
 var bodyParser = require('body-parser');
 var session = require("express-session");
+var csurf = require("csurf");
 var config = require("./app/config.js");
 var simpleGit = require('simple-git');
 var utils = require("./app/utils.js");
@@ -21,10 +40,12 @@ var coreApi = require("./app/api/coreApi.js");
 var coins = require("./app/coins.js");
 var request = require("request");
 var qrcode = require("qrcode");
-var fs = require('fs');
+var addressApi = require("./app/api/addressApi.js");
+var electrumAddressApi = require("./app/api/electrumAddressApi.js");
+var coreApi = require("./app/api/coreApi.js");
+var auth = require('./app/auth.js');
 
 var crawlerBotUserAgentStrings = [ "Googlebot", "Bingbot", "Slurp", "DuckDuckBot", "Baiduspider", "YandexBot", "Sogou", "Exabot", "facebot", "ia_archiver" ];
-
 
 var baseActionsRouter = require('./routes/baseActionsRouter');
 
@@ -41,23 +62,79 @@ app.engine('pug', (path, options, fn) => {
 
 app.set('view engine', 'pug');
 
+// basic http authentication
+if (process.env.BTCEXP_BASIC_AUTH_PASSWORD) {
+	app.disable('x-powered-by');
+	app.use(auth(process.env.BTCEXP_BASIC_AUTH_PASSWORD));
+}
+
 // uncomment after placing your favicon in /public
 //app.use(favicon(__dirname + '/public/favicon.ico'));
-app.use(logger('dev'));
+//app.use(logger('dev'));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(session({
-	secret: config.cookiePassword,
+	secret: config.cookieSecret,
 	resave: false,
 	saveUninitialized: false
 }));
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 process.on("unhandledRejection", (reason, p) => {
-	console.log("Unhandled Rejection at: Promise", p, "reason:", reason, "stack:", reason.stack);
+	debugLog("Unhandled Rejection at: Promise", p, "reason:", reason, "stack:", (reason != null ? reason.stack : "null"));
 });
 
+function loadMiningPoolConfigs() {
+	global.miningPoolsConfigs = [];
+
+	var miningPoolsConfigDir = path.join(__dirname, "public", "txt", "mining-pools-configs", global.coinConfig.ticker);
+
+	fs.readdir(miningPoolsConfigDir, function(err, files) {
+		if (err) {
+			utils.logError("3ufhwehe", err, {configDir:miningPoolsConfigDir, desc:"Unable to scan directory"});
+
+			return;
+		}
+
+		files.forEach(function(file) {
+			var filepath = path.join(miningPoolsConfigDir, file);
+
+			var contents = fs.readFileSync(filepath, 'utf8');
+
+			global.miningPoolsConfigs.push(JSON.parse(contents));
+		});
+	});
+
+	for (var i = 0; i < global.miningPoolsConfigs.length; i++) {
+		for (var x in global.miningPoolsConfigs[i].payout_addresses) {
+			if (global.miningPoolsConfigs[i].payout_addresses.hasOwnProperty(x)) {
+				global.specialAddresses[x] = {type:"minerPayout", minerInfo:global.miningPoolsConfigs[i].payout_addresses[x]};
+			}
+		}
+	}
+}
+
+function getSourcecodeProjectMetadata() {
+	var options = {
+		url: "https://api.github.com/repos/janoside/btc-rpc-explorer",
+		headers: {
+			'User-Agent': 'request'
+		}
+	};
+
+	request(options, function(error, response, body) {
+		if (error == null && response && response.statusCode && response.statusCode == 200) {
+			var responseBody = JSON.parse(body);
+
+			global.sourcecodeProjectMetadata = responseBody;
+
+		} else {
+			utils.logError("3208fh3ew7eghfg", {error:error, response:response, body:body});
+		}
+	});
+}
 
 
 app.runOnStartup = function() {
@@ -65,43 +142,38 @@ app.runOnStartup = function() {
 	global.coinConfig = coins[config.coin];
 	global.coinConfigs = coins;
 
-	console.log("Running RPC Explorer for coin: " + global.coinConfig.name);
+	debugLog(`Running RPC Explorer for ${global.coinConfig.name}`);
 
-	var rpcCredentials = null;
-	if (config.credentials.rpc) {
-		rpcCredentials = config.credentials.rpc;
+	var rpcCred = config.credentials.rpc;
+	debugLog(`Connecting via RPC to node at ${rpcCred.host}:${rpcCred.port}`);
 
-	} else if (process.env.RPC_HOST) {
-		rpcCredentials = {
-			host: process.env.RPC_HOST,
-			port: process.env.RPC_PORT,
-			username: process.env.RPC_USERNAME,
-			password: process.env.RPC_PASSWORD
-		};
-	}
+	var rpcClientProperties = {
+		host: rpcCred.host,
+		port: rpcCred.port,
+		username: rpcCred.username,
+		password: rpcCred.password,
+		timeout: rpcCred.timeout
+	};
 
-	if (rpcCredentials) {
-		console.log("Connecting via RPC to node at " + config.credentials.rpc.host + ":" + config.credentials.rpc.port);
+	global.client = new bitcoinCore(rpcClientProperties);
 
-		global.client = new bitcoinCore({
-			host: rpcCredentials.host,
-			port: rpcCredentials.port,
-			username: rpcCredentials.username,
-			password: rpcCredentials.password,
-			timeout: 5000
-		});
-	}
+	coreApi.getNetworkInfo().then(function(getnetworkinfo) {
+		debugLog(`Connected via RPC to node. Basic info: version=${getnetworkinfo.version}, subversion=${getnetworkinfo.subversion}, protocolversion=${getnetworkinfo.protocolversion}, services=${getnetworkinfo.localservices}`);
 
-	if (config.donationAddresses) {
+	}).catch(function(err) {
+		utils.logError("32ugegdfsde", err);
+	});
+
+	if (config.donations.addresses) {
 		var getDonationAddressQrCode = function(coinId) {
-			qrcode.toDataURL(config.donationAddresses[coinId].address, function(err, url) {
+			qrcode.toDataURL(config.donations.addresses[coinId].address, function(err, url) {
 				global.donationAddressQrCodeUrls[coinId] = url;
 			});
 		};
 
 		global.donationAddressQrCodeUrls = {};
 
-		config.donationAddresses.coins.forEach(function(item) {
+		config.donations.addresses.coins.forEach(function(item) {
 			getDonationAddressQrCode(item);
 		});
 	}
@@ -110,6 +182,10 @@ app.runOnStartup = function() {
 	global.specialBlocks = {};
 	global.specialAddresses = {};
 
+	if (config.donations.addresses && config.donations.addresses[coinConfig.ticker]) {
+		global.specialAddresses[config.donations.addresses[coinConfig.ticker].address] = {type:"donation"};
+	}
+
 	if (global.coinConfig.historicalData) {
 		global.coinConfig.historicalData.forEach(function(item) {
 			if (item.type == "blockheight") {
@@ -117,64 +193,71 @@ app.runOnStartup = function() {
 
 			} else if (item.type == "tx") {
 				global.specialTransactions[item.txid] = item;
+
+			} else if (item.type == "address") {
+				global.specialAddresses[item.address] = {type:"fun", addressInfo:item};
 			}
 		});
 	}
 
-	if (global.coinConfig.miningPoolsConfigUrls) {
-		var promises = [];
-
-		for (var i = 0; i < global.coinConfig.miningPoolsConfigUrls.length; i++) {
-			promises.push(new Promise(function(resolve, reject) {
-				request(global.coinConfig.miningPoolsConfigUrls[i], function(error, response, body) {
-					if (!error && response && response.statusCode && response.statusCode == 200) {
-						var responseBody = JSON.parse(body);
-
-						resolve(responseBody);
-						
-					} else {
-						console.log("Error:");
-						console.log(error);
-						console.log("Response:");
-						console.log(response);
-
-						resolve({"coinbase_tags" : {}, "payout_addresses":{}});
-					}
-				});
-			}));
+	if (config.addressApi) {
+		var supportedAddressApis = addressApi.getSupportedAddressApis();
+		if (!supportedAddressApis.includes(config.addressApi)) {
+			utils.logError("32907ghsd0ge", `Unrecognized value for BTCEXP_ADDRESS_API: '${config.addressApi}'. Valid options are: ${supportedAddressApis}`);
 		}
 
-		Promise.all(promises).then(function(results) {
-			global.miningPoolsConfigs = results;
-
-			for (var i = 0; i < global.miningPoolsConfigs.length; i++) {
-				for (var x in global.miningPoolsConfigs[i].payout_addresses) {
-					if (global.miningPoolsConfigs[i].payout_addresses.hasOwnProperty(x)) {
-						global.specialAddresses[x] = global.miningPoolsConfigs[i].payout_addresses[x];
-					}
-				}
+		if (config.addressApi == "electrumx") {
+			if (config.electrumXServers && config.electrumXServers.length > 0) {
+				electrumAddressApi.connectToServers().then(function() {
+					global.electrumAddressApi = electrumAddressApi;
+					
+				}).catch(function(err) {
+					utils.logError("31207ugf4e0fed", err, {electrumXServers:config.electrumXServers});
+				});
+			} else {
+				utils.logError("327hs0gde", "You must set the 'BTCEXP_ELECTRUMX_SERVERS' environment variable when BTCEXP_ADDRESS_API=electrumx.");
 			}
-		});
-		
+		}
 	}
 
-	if (global.sourcecodeVersion == null) {
+
+	loadMiningPoolConfigs();
+
+	if (global.sourcecodeVersion == null && fs.existsSync('.git')) {
 		simpleGit(".").log(["-n 1"], function(err, log) {
+			if (err) {
+				utils.logError("3fehge9ee", err, {desc:"Error accessing git repo"});
+
+				return;
+			}
+			
 			global.sourcecodeVersion = log.all[0].hash.substring(0, 10);
 			global.sourcecodeDate = log.all[0].date.substring(0, "0000-00-00".length);
 		});
 	}
 
-	if (global.exchangeRate == null) {
-		utils.refreshExchangeRate();
+	if (config.demoSite) {
+		getSourcecodeProjectMetadata();
+		setInterval(getSourcecodeProjectMetadata, 3600000);
+	}
+
+	if (global.exchangeRates == null) {
+		utils.refreshExchangeRates();
 	}
 
 	// refresh exchange rate periodically
-	setInterval(utils.refreshExchangeRate, 1800000);
+	setInterval(utils.refreshExchangeRates, 1800000);
 
 	utils.logMemoryUsage();
 	setInterval(utils.logMemoryUsage, 5000);
 };
+
+app.use(function(req, res, next) {
+	req.startTime = Date.now();
+	req.startMem = process.memoryUsage().heapUsed;
+
+	next();
+});
 
 app.use(function(req, res, next) {
 	// make session available in templates
@@ -202,6 +285,8 @@ app.use(function(req, res, next) {
 	res.locals.genesisBlockHash = coreApi.getGenesisBlockHash();
 	res.locals.genesisCoinbaseTransactionId = coreApi.getGenesisCoinbaseTransactionId();
 
+	res.locals.pageErrors = [];
+
 
 	// currency format type
 	if (!req.session.currencyFormatType) {
@@ -227,7 +312,7 @@ app.use(function(req, res, next) {
 		}
 	}
 
-	// theme
+	// homepage banner
 	if (!req.session.hideHomepageBanner) {
 		var cookieValue = req.cookies['user-setting-hideHomepageBanner'];
 
@@ -274,7 +359,19 @@ app.use(function(req, res, next) {
 	next();
 });
 
+app.use(csurf(), (req, res, next) => {
+	res.locals.csrfToken = req.csrfToken();
+	next();
+});
+
 app.use('/', baseActionsRouter);
+
+app.use(function(req, res, next) {
+	var time = Date.now() - req.startTime;
+	var memdiff = process.memoryUsage().heapUsed - req.startMem;
+
+	debugPerfLog("Finished action '%s' in %d ms", req.path, time);
+});
 
 /// catch 404 and forwarding to error handler
 app.use(function(req, res, next) {

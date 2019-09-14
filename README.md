@@ -1,5 +1,8 @@
 # Actinium Explorer
 
+[![npm version][npm-ver-img]][npm-ver-url] [![NPM downloads][npm-dl-img]][npm-dl-url]
+
+
 Simple, database-free Bitcoin blockchain explorer, via RPC. Built with Node.js, express, bootstrap-v4.
 
 Available at:
@@ -12,7 +15,8 @@ Available at:
 * View block details
 * View transaction details, with navigation "backward" via spent transaction outputs
 * View JSON content used to generate most pages
-* Search supports transactions, blocks, addresses (including bech32)
+* Search by transaction ID, block hash/height, and address
+* Optional transaction history for addresses by querying from ElectrumX, blockchain.com, blockchair.com, or blockcypher.com
 * Mempool summary, with fee, size, and age breakdowns
 * RPC command browser and terminal
 * Currently supports BTC, LTC (support for any Bitcoin-RPC-protocol-compliant coin can be added easily)
@@ -23,25 +27,44 @@ The below instructions are geared toward BTC, but can be adapted easily to other
 
 ## Prerequisites
 
-1. Install and run a full, archiving node - [instructions](https://bitcoin.org/en/full-node). Ensure that your node has full transaction indexing enabled (`txindex=1`) and the RPC server enabled (`server=1`).
+1. Install and run a full, archiving node - [instructions](https://bitcoin.org/en/full-node). Ensure that your bitcoin node has full transaction indexing enabled (`txindex=1`) and the RPC server enabled (`server=1`).
 2. Synchronize your node with the Bitcoin network.
+3. "Recent" version of Node.js (8+ recommended).
 
 ## Instructions
 
-1. Clone this repo
-2. `npm install`
-3. `npm run build`
-4. Edit the "rpc" settings in [credentials.js](app/credentials.js) to target your node
-5. Optional: Change the "coin" value in [config.js](app/config.js). Currently supported values are "BTC" and "LTC".
-6. Optional: Add an ipstack.com API access key to [credentials.js](app/credentials.js). Doing so will add a map to the /peers page.
-7. `npm start` to start the local server
-8. Visit http://127.0.0.1:3002/
+```bash
+npm install -g btc-rpc-explorer
+btc-rpc-explorer
+```
+
+If you're running on mainnet with the default datadir and port, this Should Just Work.
+Open [http://127.0.0.1:3002/](http://127.0.0.1:3002/) to view the explorer.
+
+You may set configuration options in a `.env` file or using CLI args.
+See [configuration](#configuration) for details.
+
+### Configuration
+
+Configuration options may be passed as environment variables
+or by creating an env file at `~/.config/btc-rpc-explorer.env`
+or at `.env` in the working directory.
+See [.env-sample](.env-sample) for a list of the options and details for formatting `.env`.
+
+You may also pass options as CLI arguments, for example:
+
+```bash
+btc-rpc-explorer --port 8080 --bitcoind-port 18443 --bitcoind-cookie ~/.bitcoin/regtest/.cookie
+```
+
+See `btc-rpc-explorer --help` for the full list of CLI options.
 
 ## Run via Docker
 
 1. `docker build -t btc-rpc-explorer .`
 2. `docker run -p 3002:3002 -it btc-rpc-explorer`
 
+<<<<<<< HEAD
 # Screenshots
 
 <table>
