@@ -82,10 +82,19 @@ module.exports = {
 			date: "2018-04-25",
 			blockHeight: 0,
 			blockHash: "28d77872e23714562f49a1be792c276623c1bbe3fdcf21b6035cfde78b00b824",
-			summary: "The Actinium genesis block.",
+			summary: "The Actinium genesis block",
 			alertBodyHtml: "This is the first block in the Actinium blockchain.",
 			referenceUrl: "https://explorer.actinium.org/block-height/0"
 		},
+                {
+                        type: "blockheight",
+                        date: "2018-12-20",
+                        blockHeight: 140997,
+                        blockHash: "88a8d08b5a7a5da8d68e855006bb0fed833521ae92c759bd9e76a8eccb18ffd1",
+                        summary: "The golden block",
+                        alertBodyHtml: "This is the first block generated with Bitcoin-based wallet that was running on Goldmine Pool.",
+                        referenceUrl: "https://explorer.actinium.org/block-height/140997"
+                },
 	],
 	exchangeRateData:{
 		jsonUrl:"https://api.coinmarketcap.com/v1/ticker/Actinium/",

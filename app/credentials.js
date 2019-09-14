@@ -13,7 +13,7 @@ module.exports = {
 	// optional: enter your api access key from ipstack.com below
 	// to include a map of the estimated locations of your node's
 	// peers
-	ipStackComApiAccessKey:"998b2c319572fbf0d2dad91845408965",
+	ipStackComApiAccessKey:"fe3aa5faf16d10a7c25795f0456dce11",
 
 	// optional: GA tracking code
 	googleAnalyticsTrackingId:"",

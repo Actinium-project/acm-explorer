@@ -32,7 +32,7 @@ router.get("/", function(req, res) {
 	}
 
 	res.locals.homepage = true;
-
+        
 	var promises = [];
 
 	promises.push(coreApi.getMempoolInfo());
@@ -78,6 +78,8 @@ router.get("/", function(req, res) {
 
 		res.render("index");
 	});
+        
+	//res.redirect("/blocks");
 });
 
 router.get("/node-status", function(req, res) {
