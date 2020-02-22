@@ -221,7 +221,7 @@ app.runOnStartup = function() {
 	}
 
 
-	loadMiningPoolConfigs();
+	//loadMiningPoolConfigs();
 
 	if (global.sourcecodeVersion == null && fs.existsSync('.git')) {
 		simpleGit(".").log(["-n 1"], function(err, log) {
