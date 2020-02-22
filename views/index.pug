@@ -4,7 +4,7 @@ block headContent
 	title Home
 	
 block content
-	h1(class="h3") #{coinConfig.siteTitle}
+	h1.h3 #{coinConfig.siteTitle}
 	hr
 
 	if (getblockchaininfo == null)
@@ -42,8 +42,7 @@ block content
 						if (!crawlerBot)
 							button.btn.btn-primary(type="button", class="btn btn-primary mb-1", data-toggle="modal", data-target="#exampleModalCenter")
 								i(class="fas fa-heart mr-2")
-								span Donate via 
-								span(class="font-weight-light") BTCPay
+								span Support Project
 
 				div.mt-2
 					a.mr-2(href="https://www.npmjs.com/package/btc-rpc-explorer" rel="nofollow" target="_blank")
@@ -160,7 +159,9 @@ block content
 							span.font-weight-bold.border-dotted(data-toggle="tooltip", title=("Exchange-rate data from: " + coinConfig.exchangeRateData.jsonUrl)) Exchange Rate 
 
 							if (global.exchangeRates)
-								p(class="lead") #{utils.formatExchangedCurrency(1.0, "usd")}
+								p(class="lead") #{utils.formatValueInActiveCurrency(1.0)}
+									small.text-muted.font-weight-light  (#{utils.satoshisPerUnitOfActiveCurrency()})
+
 							else
 								p(class="lead") -
 

@@ -19,7 +19,10 @@ Available at:
 * Optional transaction history for addresses by querying from ElectrumX, blockchain.com, blockchair.com, or blockcypher.com
 * Mempool summary, with fee, size, and age breakdowns
 * RPC command browser and terminal
-* Currently supports BTC, LTC (support for any Bitcoin-RPC-protocol-compliant coin can be added easily)
+
+# Changelog / Release notes
+
+See [CHANGELOG.md](/CHANGELOG.md).
 
 # Getting started
 

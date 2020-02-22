@@ -45,6 +45,9 @@ var electrumAddressApi = require("./app/api/electrumAddressApi.js");
 var coreApi = require("./app/api/coreApi.js");
 var auth = require('./app/auth.js');
 
+var package_json = require('./package.json');
+global.appVersion = package_json.version;
+
 var crawlerBotUserAgentStrings = [ "Googlebot", "Bingbot", "Slurp", "DuckDuckBot", "Baiduspider", "YandexBot", "Sogou", "Exabot", "facebot", "ia_archiver" ];
 
 var baseActionsRouter = require('./routes/baseActionsRouter');
@@ -136,16 +139,121 @@ function getSourcecodeProjectMetadata() {
 	});
 }
 
+function loadChangelog() {
+	var filename = "CHANGELOG.md";
+	
+	fs.readFile(path.join(__dirname, filename), 'utf8', function(err, data) {
+		if (err) {
+			utils.logError("2379gsd7sgd334", err);
 
-app.runOnStartup = function() {
+		} else {
+			global.changelogMarkdown = data;
+		}
+	});
+}
+
+function loadHistoricalDataForChain(chain) {
+	global.specialTransactions = {};
+	global.specialBlocks = {};
+	global.specialAddresses = {};
+
+	if (config.donations.addresses && config.donations.addresses[coinConfig.ticker]) {
+		global.specialAddresses[config.donations.addresses[coinConfig.ticker].address] = {type:"donation"};
+	}
+
+	if (global.coinConfig.historicalData) {
+		global.coinConfig.historicalData.forEach(function(item) {
+			if (item.chain == chain) {
+				if (item.type == "blockheight") {
+					global.specialBlocks[item.blockHash] = item;
+
+				} else if (item.type == "tx") {
+					global.specialTransactions[item.txid] = item;
+
+				} else if (item.type == "address") {
+					global.specialAddresses[item.address] = {type:"fun", addressInfo:item};
+				}
+			}
+		});
+	}
+}
+
+function verifyRpcConnection() {
+	if (!global.activeBlockchain) {
+		debugLog(`Trying to verify RPC connection...`);
+
+		coreApi.getNetworkInfo().then(function(getnetworkinfo) {
+			coreApi.getBlockchainInfo().then(function(getblockchaininfo) {
+				global.activeBlockchain = getblockchaininfo.chain;
+
+				// we've verified rpc connection, no need to keep trying
+				clearInterval(global.verifyRpcConnectionIntervalId);
+
+				onRpcConnectionVerified(getnetworkinfo, getblockchaininfo);
+
+			}).catch(function(err) {
+				utils.logError("329u0wsdgewg6ed", err);
+			});
+		}).catch(function(err) {
+			utils.logError("32ugegdfsde", err);
+		});
+	}
+}
+
+function onRpcConnectionVerified(getnetworkinfo, getblockchaininfo) {
+	// localservicenames introduced in 0.19
+	var services = getnetworkinfo.localservicesnames ? ("[" + getnetworkinfo.localservicesnames.join(", ") + "]") : getnetworkinfo.localservices;
+
+	debugLog(`RPC Connected: version=${getnetworkinfo.version} (${getnetworkinfo.subversion}), protocolversion=${getnetworkinfo.protocolversion}, chain=${getblockchaininfo.chain}, services=${services}`);
+
+	// load historical/fun items for this chain
+	loadHistoricalDataForChain(global.activeBlockchain);
+
+	if (global.activeBlockchain == "main") {
+		if (global.exchangeRates == null) {
+			utils.refreshExchangeRates();
+		}
+
+		// refresh exchange rate periodically
+		setInterval(utils.refreshExchangeRates, 1800000);
+	}
+}
+
+
+app.onStartup = function() {
 	global.config = config;
 	global.coinConfig = coins[config.coin];
 	global.coinConfigs = coins;
 
-	debugLog(`Running RPC Explorer for ${global.coinConfig.name}`);
+	loadChangelog();
 
+	if (global.sourcecodeVersion == null && fs.existsSync('.git')) {
+		simpleGit(".").log(["-n 1"], function(err, log) {
+			if (err) {
+				utils.logError("3fehge9ee", err, {desc:"Error accessing git repo"});
+
+				debugLog(`Starting ${global.coinConfig.ticker} RPC Explorer, v${global.appVersion} (code: unknown commit)`);
+
+			} else {
+				global.sourcecodeVersion = log.all[0].hash.substring(0, 10);
+				global.sourcecodeDate = log.all[0].date.substring(0, "0000-00-00".length);
+
+				debugLog(`Starting ${global.coinConfig.ticker} RPC Explorer, v${global.appVersion} (commit: '${global.sourcecodeVersion}', date: ${global.sourcecodeDate})`);
+			}
+
+			app.continueStartup();
+		});
+
+	} else {
+		debugLog(`Starting ${global.coinConfig.ticker} RPC Explorer, v${global.appVersion}`);
+
+		app.continueStartup();
+	}
+}
+
+app.continueStartup = function() {
 	var rpcCred = config.credentials.rpc;
-	debugLog(`Connecting via RPC to node at ${rpcCred.host}:${rpcCred.port}`);
+	debugLog(`Connecting to RPC node at ${rpcCred.host}:${rpcCred.port}`);
 
 	var rpcClientProperties = {
 		host: rpcCred.host,
@@ -155,14 +263,24 @@ app.runOnStartup = function() {
 		timeout: rpcCred.timeout
 	};
 
-	global.client = new bitcoinCore(rpcClientProperties);
+	global.rpcClient = new bitcoinCore(rpcClientProperties);
 
-	coreApi.getNetworkInfo().then(function(getnetworkinfo) {
-		debugLog(`Connected via RPC to node. Basic info: version=${getnetworkinfo.version}, subversion=${getnetworkinfo.subversion}, protocolversion=${getnetworkinfo.protocolversion}, services=${getnetworkinfo.localservices}`);
+	var rpcClientNoTimeoutProperties = {
+		host: rpcCred.host,
+		port: rpcCred.port,
+		username: rpcCred.username,
+		password: rpcCred.password,
+		timeout: 0
+	};
 
-	}).catch(function(err) {
-		utils.logError("32ugegdfsde", err);
-	});
+	global.rpcClientNoTimeout = new bitcoinCore(rpcClientNoTimeoutProperties);
+
+
+	// keep trying to verify rpc connection until we succeed
+	// note: see verifyRpcConnection() for associated clearInterval() after success
+	verifyRpcConnection();
+	global.verifyRpcConnectionIntervalId = setInterval(verifyRpcConnection, 30000);
+
 
 	if (config.donations.addresses) {
 		var getDonationAddressQrCode = function(coinId) {
@@ -178,27 +296,6 @@ app.runOnStartup = function() {
 		});
 	}
 
-	global.specialTransactions = {};
-	global.specialBlocks = {};
-	global.specialAddresses = {};
-
-	if (config.donations.addresses && config.donations.addresses[coinConfig.ticker]) {
-		global.specialAddresses[config.donations.addresses[coinConfig.ticker].address] = {type:"donation"};
-	}
-
-	if (global.coinConfig.historicalData) {
-		global.coinConfig.historicalData.forEach(function(item) {
-			if (item.type == "blockheight") {
-				global.specialBlocks[item.blockHash] = item;
-
-			} else if (item.type == "tx") {
-				global.specialTransactions[item.txid] = item;
-
-			} else if (item.type == "address") {
-				global.specialAddresses[item.address] = {type:"fun", addressInfo:item};
-			}
-		});
-	}
 
 	if (config.addressApi) {
 		var supportedAddressApis = addressApi.getSupportedAddressApis();
@@ -223,30 +320,12 @@ app.runOnStartup = function() {
 
 	loadMiningPoolConfigs();
 
-	if (global.sourcecodeVersion == null && fs.existsSync('.git')) {
-		simpleGit(".").log(["-n 1"], function(err, log) {
-			if (err) {
-				utils.logError("3fehge9ee", err, {desc:"Error accessing git repo"});
-
-				return;
-			}
-			
-			global.sourcecodeVersion = log.all[0].hash.substring(0, 10);
-			global.sourcecodeDate = log.all[0].date.substring(0, "0000-00-00".length);
-		});
-	}
 
 	if (config.demoSite) {
 		getSourcecodeProjectMetadata();
 		setInterval(getSourcecodeProjectMetadata, 3600000);
 	}
 
-	if (global.exchangeRates == null) {
-		utils.refreshExchangeRates();
-	}
-
-	// refresh exchange rate periodically
-	setInterval(utils.refreshExchangeRates, 1800000);
 
 	utils.logMemoryUsage();
 	setInterval(utils.logMemoryUsage, 5000);
@@ -325,6 +404,7 @@ app.use(function(req, res, next) {
 	}
 
 	res.locals.currencyFormatType = req.session.currencyFormatType;
+	global.currencyFormatType = req.session.currencyFormatType;
 
 
 	if (!["/", "/connect"].includes(req.originalUrl)) {

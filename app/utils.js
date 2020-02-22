@@ -198,13 +198,71 @@ function addThousandsSeparators(x) {
 	return parts.join(".");
 }
 
+function formatValueInActiveCurrency(amount) {
+	if (global.currencyFormatType && global.exchangeRates[global.currencyFormatType.toLowerCase()]) {
+		return formatExchangedCurrency(amount, global.currencyFormatType);
+
+	} else {
+		return formatExchangedCurrency(amount, "usd");
+	}
+}
+
+function satoshisPerUnitOfActiveCurrency() {
+	if (global.currencyFormatType != null && global.exchangeRates != null) {
+		var exchangeType = global.currencyFormatType.toLowerCase();
+
+		if (!global.exchangeRates[global.currencyFormatType.toLowerCase()]) {
+			// if current display currency is a native unit, default to USD for exchange values
+			exchangeType = "usd";
+		}
+
+		var dec = new Decimal(1);
+		var one = new Decimal(1);
+		dec = dec.times(global.exchangeRates[exchangeType]);
+		
+		// USD/BTC -> BTC/USD
+		dec = one.dividedBy(dec);
+
+		var unitName = coins[config.coin].baseCurrencyUnit.name;
+		var formatInfo = getCurrencyFormatInfo(unitName);
+
+		// BTC/USD -> sat/USD
+		dec = dec.times(formatInfo.multiplier);
+
+		var exchangedAmt = parseInt(dec);
+
+		if (exchangeType == "eur") {
+			return addThousandsSeparators(exchangedAmt) + ` ${unitName}/€`;
+
+		} else {
+			return addThousandsSeparators(exchangedAmt) + ` ${unitName}/$`;
+		}
+		
+	}
+
+	return null;
+
+	if (global.currencyFormatType) {
+		return formatExchangedCurrency(amount, global.currencyFormatType);
+
+	} else {
+		return formatExchangedCurrency(amount, "usd");
+	}
+}
+
 function formatExchangedCurrency(amount, exchangeType) {
 	if (global.exchangeRates != null && global.exchangeRates[exchangeType.toLowerCase()] != null) {
 		var dec = new Decimal(amount);
 		dec = dec.times(global.exchangeRates[exchangeType.toLowerCase()]);
 		var exchangedAmt = parseFloat(Math.round(dec * 100) / 100).toFixed(2);
 
-		return "$" + addThousandsSeparators(exchangedAmt);
+		if (exchangeType == "eur") {
+			return "€" + addThousandsSeparators(exchangedAmt);
+
+		} else {
+			return "$" + addThousandsSeparators(exchangedAmt);
+		}
+		
 	}
 
 	return "";
@@ -284,7 +342,7 @@ function getTxTotalInputOutputValues(tx, txInputs, blockHeight) {
 	try {
 		for (var i = 0; i < tx.vin.length; i++) {
 			if (tx.vin[i].coinbase) {
-				totalInputValue = totalInputValue.plus(new Decimal(coinConfig.blockRewardFunction(blockHeight)));
+				totalInputValue = totalInputValue.plus(new Decimal(coinConfig.blockRewardFunction(blockHeight, global.activeBlockchain)));
 
 			} else {
 				var txInput = txInputs[i];
@@ -317,7 +375,7 @@ function getBlockTotalFeesFromCoinbaseTxAndBlockHeight(coinbaseTx, blockHeight) 
 		return 0;
 	}
 
-	var blockReward = coinConfig.blockRewardFunction(blockHeight);
+	var blockReward = coinConfig.blockRewardFunction(blockHeight, global.activeBlockchain);
 
 	var totalOutput = new Decimal(0);
 	for (var i = 0; i < coinbaseTx.vout.length; i++) {
@@ -360,7 +418,7 @@ function refreshExchangeRates() {
 // Uses ipstack.com API
 function geoLocateIpAddresses(ipAddresses, provider) {
 	return new Promise(function(resolve, reject) {
-		if (config.privacyMode) {
+		if (config.privacyMode || config.credentials.ipStackComApiAccessKey === undefined) {
 			resolve({});
 
 			return;
@@ -566,6 +624,8 @@ module.exports = {
 	formatCurrencyAmount: formatCurrencyAmount,
 	formatCurrencyAmountWithForcedDecimalPlaces: formatCurrencyAmountWithForcedDecimalPlaces,
 	formatExchangedCurrency: formatExchangedCurrency,
+	formatValueInActiveCurrency: formatValueInActiveCurrency,
+	satoshisPerUnitOfActiveCurrency: satoshisPerUnitOfActiveCurrency,
 	addThousandsSeparators: addThousandsSeparators,
 	formatCurrencyAmountInSmallestUnits: formatCurrencyAmountInSmallestUnits,
 	seededRandom: seededRandom,

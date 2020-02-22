@@ -53,8 +53,53 @@ function getPeerInfo() {
 	return getRpcData("getpeerinfo");
 }
 
+function getMempoolTxids() {
+	return getRpcDataWithParams({method:"getrawmempool", parameters:[false]});
+}
+
 function getRawMempool() {
-	return getRpcDataWithParams({method:"getrawmempool", parameters:[true]});
+	return new Promise(function(resolve, reject) {
+		getRpcDataWithParams({method:"getrawmempool", parameters:[false]}).then(function(txids) {
+			var promises = [];
+
+			for (var i = 0; i < txids.length; i++) {
+				var txid = txids[i];
+
+				promises.push(getRawMempoolEntry(txid));
+			}
+
+			Promise.all(promises).then(function(results) {
+				var finalResult = {};
+
+				for (var i = 0; i < results.length; i++) {
+					if (results[i] != null) {
+						finalResult[results[i].txid] = results[i];
+					}
+				}
+
+				resolve(finalResult);
+
+			}).catch(function(err) {
+				reject(err);
+			});
+
+		}).catch(function(err) {
+			reject(err);
+		});
+	});
+}
+
+function getRawMempoolEntry(txid) {
+	return new Promise(function(resolve, reject) {
+		getRpcDataWithParams({method:"getmempoolentry", parameters:[txid]}).then(function(result) {
+			result.txid = txid;
+
+			resolve(result);
+
+		}).catch(function(err) {
+			resolve(null);
+		});
+	});
 }
 
 function getChainTxStats(blockCount) {
@@ -105,11 +150,17 @@ function getRawTransaction(txid) {
 	debugLog("getRawTransaction: %s", txid);
 
 	return new Promise(function(resolve, reject) {
-		if (coins[config.coin].genesisCoinbaseTransactionId && txid == coins[config.coin].genesisCoinbaseTransactionId) {
+		if (coins[config.coin].genesisCoinbaseTransactionIdsByNetwork[global.activeBlockchain] && txid == coins[config.coin].genesisCoinbaseTransactionIdsByNetwork[global.activeBlockchain]) {
 			// copy the "confirmations" field from genesis block to the genesis-coinbase tx
 			getBlockchainInfo().then(function(blockchainInfoResult) {
-				var result = coins[config.coin].genesisCoinbaseTransaction;
+				var result = coins[config.coin].genesisCoinbaseTransactionsByNetwork[global.activeBlockchain];
 				result.confirmations = blockchainInfoResult.blocks;
+
+				// hack: default regtest node returns "0" for number of blocks, despite including a genesis block;
+				// to display this block without errors, tag it with 1 confirmation
+				if (global.activeBlockchain == "regtest" && result.confirmations == 0) {
+					result.confirmations = 1;
+				}
 
 				resolve(result);
 
@@ -224,6 +275,8 @@ function getRpcData(cmd) {
 		debugLog(`RPC: ${cmd}`);
 
 		rpcCall = function(callback) {
+			var client = (cmd == "gettxoutsetinfo" ? global.rpcClientNoTimeout : global.rpcClient);
+
 			client.command(cmd, function(err, result, resHeaders) {
 				if (err) {
 					utils.logError("32euofeege", err, {cmd:cmd});
@@ -250,7 +303,7 @@ function getRpcDataWithParams(request) {
 		debugLog(`RPC: ${JSON.stringify(request)}`);
 
 		rpcCall = function(callback) {
-			client.command([request], function(err, result, resHeaders) {
+			global.rpcClient.command([request], function(err, result, resHeaders) {
 				if (err != null) {
 					utils.logError("38eh39hdee", err, {result:result, headers:resHeaders});
 
@@ -277,6 +330,7 @@ module.exports = {
 	getNetworkInfo: getNetworkInfo,
 	getNetTotals: getNetTotals,
 	getMempoolInfo: getMempoolInfo,
+	getMempoolTxids: getMempoolTxids,
 	getMiningInfo: getMiningInfo,
 	getBlockByHeight: getBlockByHeight,
 	getBlockByHash: getBlockByHash,
