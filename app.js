@@ -318,7 +318,7 @@ app.continueStartup = function() {
 	}
 
 
-	loadMiningPoolConfigs();
+	//loadMiningPoolConfigs();
 
 
 	if (config.demoSite) {

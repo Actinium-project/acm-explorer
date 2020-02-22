@@ -4,17 +4,17 @@ Decimal8 = Decimal.clone({ precision:8, rounding:8 });
 var currencyUnits = [
 	{
 		type:"native",
-		name:"LTC",
+		name:"ACM",
 		multiplier:1,
 		default:true,
-		values:["", "ltc", "LTC"],
+		values:["", "acm", "ACM"],
 		decimalPlaces:8
 	},
 	{
 		type:"native",
-		name:"lite",
+		name:"atom",
 		multiplier:1000,
-		values:["lite"],
+		values:["atom"],
 		decimalPlaces:5
 	},
 	{
@@ -26,9 +26,9 @@ var currencyUnits = [
 	},
 	{
 		type:"native",
-		name:"litoshi",
+		name:"actinoshi",
 		multiplier:100000000,
-		values:["litoshi", "lit"],
+		values:["actinoshi", "act"],
 		decimalPlaces:0
 	},
 	{
