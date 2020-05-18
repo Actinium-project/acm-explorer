@@ -189,16 +189,16 @@ module.exports = {
                         referenceUrl: "https://explorer.actinium.org/block-height/140997"
                 },
 	],
-	exchangeRateData:{
-		jsonUrl:"https://api.coinmarketcap.com/v1/ticker/Actinium/",
-		exchangedCurrencyName:"usd",
-		responseBodySelectorFunction:function(responseBody) {
-			if (responseBody[0] && responseBody[0].price_usd) {
-				return {"usd":responseBody[0].price_usd};
-			}
-			return null;
-		}
-	},
+	//exchangeRateData:{
+	//	jsonUrl:"https://api.coinmarketcap.com/v1/ticker/Actinium/",
+	//	exchangedCurrencyName:"usd",
+	//	responseBodySelectorFunction:function(responseBody) {
+	//		if (responseBody[0] && responseBody[0].price_usd) {
+	//			return {"usd":responseBody[0].price_usd};
+	//		}
+	//		return null;
+	//	}
+	//},
 	blockRewardFunction:function(blockHeight) {
 		var eras = [ new Decimal8(50) ];
 		for (var i = 1; i < 34; i++) {
