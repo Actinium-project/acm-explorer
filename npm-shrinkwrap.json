@@ -2000,6 +2000,7 @@
       "version": "1.4.0",
       "resolved": "https://registry.npmjs.org/once/-/once-1.4.0.tgz",
       "integrity": "sha1-WDsap3WWHUsROsF9nFC6753Xa9E=",
+      "optional": true,
       "requires": {
         "wrappy": "1"
       }
@@ -2128,9 +2129,9 @@
       }
     },
     "pug-code-gen": {
-      "version": "2.0.2",
-      "resolved": "https://registry.npmjs.org/pug-code-gen/-/pug-code-gen-2.0.2.tgz",
-      "integrity": "sha512-kROFWv/AHx/9CRgoGJeRSm+4mLWchbgpRzTEn8XCiwwOy6Vh0gAClS8Vh5TEJ9DBjaP8wCjS3J6HKsEsYdvaCw==",
+      "version": "2.0.3",
+      "resolved": "https://registry.npmjs.org/pug-code-gen/-/pug-code-gen-2.0.3.tgz",
+      "integrity": "sha512-r9sezXdDuZJfW9J91TN/2LFbiqDhmltTFmGpHTsGdrNGp3p4SxAjjXEfnuK2e4ywYsRIVP0NeLbSAMHUcaX1EA==",
       "requires": {
         "constantinople": "^3.1.2",
         "doctypes": "^1.1.0",
@@ -3009,7 +3010,8 @@
     "wrappy": {
       "version": "1.0.2",
       "resolved": "https://registry.npmjs.org/wrappy/-/wrappy-1.0.2.tgz",
-      "integrity": "sha1-tSQ9jz7BqjXxNkYFvA0QNuMKtp8="
+      "integrity": "sha1-tSQ9jz7BqjXxNkYFvA0QNuMKtp8=",
+      "optional": true
     },
     "y18n": {
       "version": "4.0.0",
